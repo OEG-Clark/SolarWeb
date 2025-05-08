@@ -94,6 +94,8 @@ class SolarRAG:
         else:
             with open(self.input_file_path, "rb") as f:
                 data = json.load(f)
+        print(data)
+                
         self.paper_title = get_title(data)
         self.doi = get_doi(data)
         self.documents = get_text(data)
@@ -299,7 +301,7 @@ async def get_result(input:User_input):
         query_data = json.load(f)
     #del input["prompt_file_pdf"]
     input_data = input.dict(exclude={"prompt_file"})
-    
+    print(input_data)
     solar = SolarRAG(**input_data)
     
     context_result = {

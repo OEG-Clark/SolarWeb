@@ -10,6 +10,7 @@ import io
 import pandas as pd
 from fastapi import FastAPI
 from pydantic import BaseModel
+from streamlit_js_eval import streamlit_js_eval
 
 # Función para inicializar claves en st.session_state
 def initialize_votes_state(analysis_idx, paragraph_idx):
@@ -22,65 +23,32 @@ def initialize_votes_state(analysis_idx, paragraph_idx):
 
 # Transformar JSON
 def transform_json(input_json, annotator_name):
+    temp = {
+        "catalyst": [],
+        "co-catalyst": [],
+        "light source": [],
+        "lamp": [],
+        "reaction medium": [],
+        "reactor type": [],
+        "operation mode": []
+    }
+    for para in input_json["paragraphs"]:
+        for anno in para["annotations"]:
+            if anno["category"] in list(temp.keys()):
+                anno_key = anno["category"]
+                anno_item = {
+                    "llm generation": anno["answer"],
+                    "source": anno["source"],
+                    "context": para["paragraph_text"]
+                }
+                temp[anno_key].append(anno_item)
+
     transformed_data = {
         "paper_title": input_json.get("paper_title", "Not available"),
-        "DOI": input_json.get("DOI", "Not available"),
-        "annotator_name": annotator_name,  # Registrar el nombre del votante solo una vez
-        "generation_model": input_json.get("generation_model", "Not available"),
-        "similarity_model": input_json.get("similarity_model", "Not available"),
-        "similarity_metric": input_json.get("similarity_metric", "Not available"),
-        "rag_type":input_json.get("rag_type", "Not available"),
-        #"analysis": []
-        "result": []
+        "DOI": input_json.get("paper_doi", "Not available"),
+        "human validator": annotator_name,
+        "annotation": temp
     }
-
-    # Recorrer los resultados del análisis
-    for result in input_json.get("result", []):
-        question_category = result.get("question_category", "Unknown Category")
-        query = result.get("query", "Not available")
-        generation = result.get("generation", "Not available")
-        RAG_source = result.get("RAG_source", "Not available")
-        ground_truth = result.get("ground_truth", "Not available")
-        selected_answer_dict = result.get("selected_answer", {})
-        
-        #Manejo de claves en `selected_answer` para buscar la respuesta
-        selected_answer = "Not available"
-        for key, value in selected_answer_dict.items():
-            if question_category.replace(" ", "_").lower() in key.lower():
-                selected_answer = f"{key}: {value.strip()}"
-                break
-
-        evidences = result.get("evidences", [])
-
-        # Añadir la información procesada
-        analysis_entry = {
-            "question_category": question_category,
-            "query": query,
-            "generation": generation,
-            "RAG_source": RAG_source,
-            "ground_truth": ground_truth,
-            "selected_answer": selected_answer,
-            "evidences": []
-        }
-
-        for evidence_idx, evidence in enumerate(evidences):
-            pdf_reference = evidence.get("pdf_reference", "Not available")
-            generated_facts = evidence.get("generated_facts", "Not available")
-            similarity_score = evidence.get("similarity_score", None)
-            
-            # Añadir evidencia al análisis con espacio para votos
-            evidence_entry = {
-                "pdf_reference": pdf_reference,
-                "generated_facts": generated_facts,
-                "similarity_score": similarity_score,
-            }
-
-            analysis_entry["evidences"].append(evidence_entry)
-
-        #transformed_data["analysis"].append(analysis_entry)
-        transformed_data["result"].append(analysis_entry)
-        
-
     return transformed_data
 
 # Página JSON
@@ -98,24 +66,60 @@ def json_page():
     st.markdown("<h4 style='text-align: center;'>View the answers and evaluate them using our voting system.</h4>", unsafe_allow_html=True)
 
     # Agregar espacio antes del pie de página
-    st.markdown("<div style='height: 50px;'></div>", unsafe_allow_html=True)   
+    st.markdown("<div style='height: 50px;'></div>", unsafe_allow_html=True)
 
-    uploaded_json = st.file_uploader("Upload your JSON file please.", type="json")
+    # file_root = "/home/repos/solar/code/Corpus_without_GT/"
 
-    if uploaded_json is not None:
-        try:
-            json_content = json.load(uploaded_json)
+    # ground_truth_root = "D:\Projects\SolarWeb\ground_truth.json"
+    # file_root = "D:\Projects\SolarWeb\Corpus_without_GT"
+    # save_root = "D:\\Projects\\SolarWeb\\saved_result"
+    file_root = "/home/repos/solar/code/annotations"
+    save_root = "/home/repos/solar/code/saved_result"
+    ground_truth_root = "/home/repos/solar/code/ground_truth.json"
 
-            # Solicitar nombre del usuario
-            st.markdown("### Please enter your name to continue:")
-            annotator_name = st.text_input("Enter your name:")
+    with open(ground_truth_root, "rb") as f:
+        ground_truth_data = json.load(f)
+    
 
-            if annotator_name:
+
+    file_dir = os.listdir(file_root)
+    file_dir.sort()
+  
+    not_done_dir = []
+    done_dir = []
+    st.markdown("### Please enter your name to continue:")
+    annotator_name = st.text_input("Enter your name:")
+    if annotator_name:
+        # option = st.selectbox("Which paper would you like to annotate?",file_dir, index=None, placeholder="Select file...",)
+        if os.path.isdir(save_root + "/" + annotator_name):
+            done_file_dir = os.listdir(save_root + "/" + annotator_name)
+        else:
+            done_file_dir = []
+        for file_path in file_dir:
+            temp_file_path = "annotated_" + file_path
+            if temp_file_path in done_file_dir:
+                done_dir.append(file_path)
+            else:
+                not_done_dir.append(file_path)
+        if len(done_dir) != 0:
+            st.radio(
+                "You have annotated all these!",
+                options=done_dir)
+        option = st.selectbox(f"Which paper would you like to annotate?, There are {len(not_done_dir)} left!",not_done_dir, index=None, placeholder="Select file...",)
+        
+
+        if option:
+            try:
+                op_index = option.split(".")[0].split("_")[1]
+                f = open(os.path.join(file_root, option), "rb")
+                json_content = json.load(f)
+                f.close()
+                gt = ground_truth_data[op_index]
+                new_path = save_root + "/" + annotator_name
+                if not os.path.exists(new_path):
+                    os.makedirs(new_path)
                 st.success(f"Welcome, {annotator_name}! You can now cast your votes.")
-
                 transformed_json = transform_json(json_content, annotator_name)
-
-                # Información general del documento
                 with st.expander("Paper Information"):
                     st.markdown(f"""
                         <h4 style='color:#333;'>TITLE:</h4>
@@ -123,53 +127,44 @@ def json_page():
                         <h4 style='color:#333;'>DOI:</h4>
                         <p style='font-size:16px; color:#555;'>{transformed_json['DOI']}</p>
                         """, unsafe_allow_html=True)
-
-                #if "analysis" in transformed_json:
-                if "result" in transformed_json:    
-
+                
+                if "annotation" in transformed_json:  
                     st.markdown("<div style='height: 50px;'></div>", unsafe_allow_html=True)  
-                    st.subheader("Answers found in the PDF")
-                    st.write("Below are the answers our system found in the input PDF. You will see the answers divided in 5 tables: catalyst, co-catalyst, light_source, lamp, reaction_medium, reactor_type and operation_mode. Each answer has the five most relevant paragraphs the system found in the paper. Please vote for each paragraph (up or down) whether the target text has the right answer for the corresponding category.")
-                    #st.markdown("<div style='height: 50px;'></div>", unsafe_allow_html=True)  
+                    st.subheader("Annotations:")
+                    st.write("Below are the answers our system found in the input PDF. You will see the answers divided into 7 annotation targets: catalyst, co-catalyst, light source, lamp, reaction medium, reactor type and operation mode. In each annotation target, all possible annotation source from the entire paper is listed. For each annotation target, a list of references from the paper is given, can you vote for if the reference actually indicate the original annotation from domain expert?")
 
-                    for analysis_idx, analysis in enumerate(transformed_json["result"]):
-                        # Mostrar categoría y tipo directamente con formato
-                        category = analysis.get('question_category', 'Unknown Category').capitalize()
-                        selected_answer = analysis.get('selected_answer', 'Not available')
-
+                    for anno_cate, annotations in transformed_json["annotation"].items():
                         st.markdown(
-                            f"<p style='font-size:14px;'><strong>{category}:</strong> <span style='font-weight:normal;'>{selected_answer}</span></p>",
+                            f"<p style='font-size:22px;'><strong>Annotation Target:</strong> <span style='font-weight:normal;'>{anno_cate}</span></p>",
                             unsafe_allow_html=True
                         )
-
-                        # Función de callback para actualizar el voto
+                        st.markdown(
+                            f"<p style='font-size:14px;'>The original annotation of <span style='font-weight:normal;'>{anno_cate}</span> in this paper is: <span style='font-weight:normal;'>{gt[anno_cate]}</span></p>",
+                            unsafe_allow_html=True
+                        )
                         def update_vote(key_vote, value):
                             st.session_state[key_vote] = value
-                            
-                        with st.expander("View Evidence Details"):
-                            for evidence_idx, evidence in enumerate(analysis.get("evidences", [])):
-                                pdf_reference = evidence.get("pdf_reference", "Not available")
-
-                                key_vote = f"vote_{analysis_idx}_{evidence_idx}"
+                        with st.expander("Select &#8593; if the pdf_reference text contains the mention of the annotation target.\n\n For example, if the annotation target is catalyst, and the pdf reference mention the catalyst, vote &#8593;, even if the oringal annotation is incorrect. Otherwise, select &#8595;"):
+                            for annotation_idx, annotation in enumerate(annotations):
+                                pdf_reference = annotation.get("source", "Not available")
+                                answer = annotation.get("llm generation", "Not available")
+                                context = annotation.get("context", "Not available")
+                                key_vote = f"vote_{anno_cate}_{annotation_idx}"
                                 if key_vote not in st.session_state:
                                     st.session_state[key_vote] = None
-
                                 col_pdf, col_votes = st.columns([3, 1])
-
                                 with col_pdf:
                                     # Mostrar el contenido del PDF
                                     st.markdown(
                                         f"<div style='border: 1px solid #ddd; padding: 10px; margin-bottom: 15px; border-radius: 5px;'>"
+                                        # f"<p style='font-size:14px; line-height:1.6;'><strong>LLM generation:</strong> {answer}</p>"
                                         f"<p style='font-size:14px; line-height:1.6;'><strong>PDF Reference:</strong> {pdf_reference}</p>"
+                                        # f"<p style='font-size:14px; line-height:1.6;'><strong>Paragraph Context:</strong> {context}</p>"
                                         f"</div>",
                                         unsafe_allow_html=True
                                     )
-
                                 with col_votes:
-                                    # Estado actual
                                     current_vote = st.session_state[key_vote]
-
-                                    # Botón UPVOTE: callback con actualización inmediata
                                     if current_vote != "1":
                                         st.button("↑", key=f"upvote_{key_vote}", on_click=update_vote, args=(key_vote, "1"))
                                     else:
@@ -180,8 +175,6 @@ def json_page():
                                         st.button("↓", key=f"downvote_{key_vote}", on_click=update_vote, args=(key_vote, "0"))
                                     else:
                                         st.error("↓")
-
-                                # Guardar el voto
                                 current_vote = st.session_state[key_vote]
 
                                 # Asegurar que el voto es una cadena (0 o 1)
@@ -189,23 +182,24 @@ def json_page():
                                     current_vote = str(current_vote)  # Convertir a cadena para comparación
 
                                 if current_vote in ["0", "1"]:  # Solo añadir si es 0 o 1
-                                    evidence["vote"] = current_vote
-                                elif "vote" in evidence:  # Eliminar campo 'vote' si existe pero no es válido
-                                    del evidence["vote"]
+                                    annotation["vote"] = current_vote
+                                elif "vote" in annotation:  # Eliminar campo 'vote' si existe pero no es válido
+                                    del annotation["vote"]
+                    annotation_save_path = new_path + "/annotated_" + option
+                    st.markdown("### Submit Your Annotation!")
+                    if st.button("Submit"):
+                        with open(annotation_save_path, mode='w') as w:
+                            json.dump(transformed_json, w)
+                        if os.path.getsize(annotation_save_path) > 0:
+                            st.markdown("### Annotation Submitted!")
+                            streamlit_js_eval(js_expressions="parent.window.location.reload()")
+                        else:
+                            st.warning("Annotation Submittion Failed")
+                else:
+                    st.warning("Please enter your name to enable voting.")
 
-                    # Descargar JSON actualizado
-                    st.markdown("### Download Updated JSON")
-                    updated_json_data = json.dumps(transformed_json, indent=4)
-                    st.download_button(
-                        label="Download JSON",
-                        data=updated_json_data,
-                        file_name=f"{annotator_name}_updated.json",
-                        mime="application/json"
-                    )
-            else:
-                st.warning("Please enter your name to enable voting.")
-        except Exception as e:
-            st.error(f"Error loading JSON file: {e}")
+            except Exception as e:
+                st.error(f"Error loading JSON file: {e}")
 
 
             
@@ -263,17 +257,19 @@ def main_page():
 
     # Subir archivo PDF
     uploaded_pdf = st.file_uploader("Upload your scientific paper please", type=["pdf"])
+    
     doi = st.text_input("DOI (Optional):")
 
     # Botón para enviar el archivo
     if uploaded_pdf and st.button("Submit"):
         with st.spinner("Analyzing your paper. Please be patient..."):
             try:
+                file_location = os.path.join(tempfile.mkdtemp(), uploaded_pdf.name)
+                st.write(file_location)
                 args_dict = {
-                    "llm_id": "llama3.1",
+                    "llm_id": "llama3.2",
                     "embedding_id": "nomic-embed-text",
-                    "input_file_path": uploaded_pdf.name,
-                    "input_file_path": "/Users/alexandrafaje/Desktop/Solar/solar_chem/new_paper_1.pdf",
+                    "input_file_path": file_location,
                     "prompt_file": "prompts.json",
                     "context_file_path": "context.json",
                     "rag_type": "fact"
@@ -438,13 +434,24 @@ def about_page():
 # Función principal para gestionar las páginas
 def main():
     if "page" not in st.session_state:
-        st.session_state.page = "Home"
+        st.session_state.page = "Json"
 
     # Barra de navegación con botones en línea
-    col1, col2, col3, col4 = st.columns([5, 1, 1, 1])
-    with col2:
-        if st.button("Home", key="home_button"):
-            st.session_state.page = "Home"
+    # col1, col2, col3, col4 = st.columns([5, 1, 1, 1])
+    # with col2:
+    #     if st.button("Home", key="home_button"):
+    #         st.session_state.page = "Home"
+    # with col3:
+    #     if st.button("JSON", key="json_button"):
+    #         st.session_state.page = "Json"
+    # with col4:
+    #     if st.button("About", key="about_button"):
+    #         st.session_state.page = "About"
+    
+    col1, col3, col4 = st.columns([6, 1, 1])
+    # with col2:
+    #     if st.button("Home", key="home_button"):
+    #         st.session_state.page = "Home"
     with col3:
         if st.button("JSON", key="json_button"):
             st.session_state.page = "Json"
@@ -453,9 +460,9 @@ def main():
             st.session_state.page = "About"
 
     # Cargar la página seleccionada
-    if st.session_state.page == "Home":
-        main_page()
-    elif st.session_state.page == "About":
+    # if st.session_state.page == "Home":
+    #     main_page()
+    if st.session_state.page == "About":
         about_page()
     elif st.session_state.page == "Json":
         json_page()
