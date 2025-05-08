@@ -22,6 +22,7 @@ demon==2.0.6
 dynetx==0.3.2
 eva-lcd==0.1.1
 exceptiongroup==1.2.2
+fastapi==0.115.6
 filelock==3.16.1
 fonttools==4.55.3
 frozenlist==1.5.0
@@ -117,7 +118,9 @@ six==1.17.0
 smmap==5.0.2
 sniffio==1.3.1
 SQLAlchemy==2.0.36
+starlette==0.41.3
 streamlit==1.41.1
+streamlit-js-eval==0.1.7
 sympy==1.13.1
 tenacity==8.5.0
 texttable==1.7.0
@@ -134,5 +137,6 @@ typing-inspect==0.9.0
 typing_extensions==4.12.2
 tzdata==2024.2
 urllib3==2.3.0
+uvicorn==0.34.0
 watchdog==6.0.0
 yarl==1.18.3
